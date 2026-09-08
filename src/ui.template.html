@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<!--
+  Notator song recovery - reads Atari ST Creator/Notator .SON files and writes
+  Standard MIDI Files, applying the per-occurrence Arrange mute settings that
+  Notator itself never exported.
+
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  Copyright (C) 2026  YOUR NAME HERE
+
+  This program is free software: you can redistribute it and/or modify it under
+  the terms of the GNU General Public License as published by the Free Software
+  Foundation, either version 3 of the License, or (at your option) any later
+  version.
+
+  This program is distributed in the hope that it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program.  The full text is included at the bottom of this file and is
+  also at <https://www.gnu.org/licenses/>.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notator song recovery</title>
+<style>
+:root{
+  --paper:#ffffff; --ink:#000000; --alarm:#b3001b;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ink);color:var(--ink)}
+body{
+  font-family:var(--sans); font-size:15px; line-height:1.5;
+  padding:24px 16px 64px;
+  background-image:repeating-conic-gradient(var(--ink) 0% 25%, #1c1c1c 0% 50%);
+  background-size:4px 4px;
+}
+.frame{max-width:940px;margin:0 auto;background:var(--paper);border:2px solid var(--ink);box-shadow:8px 8px 0 rgba(0,0,0,.55)}
+.bar{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--ink);padding:5px 8px;
+  background-image:repeating-linear-gradient(var(--ink) 0 1px, var(--paper) 0 3px);}
+.boxlet{width:15px;height:15px;border:2px solid var(--ink);background:var(--paper);flex:none}
+.bar h1{font-size:14px;margin:0;font-weight:600;font-family:var(--mono);background:var(--paper);padding:0 8px}
+.pad{padding:22px}
+.lede{max-width:64ch;margin:0 0 18px}
+.lede b{font-weight:600}
+
+.drop{border:2px dashed var(--ink);padding:40px 24px;text-align:center;cursor:pointer;display:block;width:100%;
+  background:var(--paper);font-family:var(--mono);font-size:15px;color:var(--ink)}
+.drop:hover,.drop.hot{background-image:repeating-conic-gradient(var(--ink) 0% 25%, var(--paper) 0% 50%);background-size:2px 2px}
+.drop:hover .inner,.drop.hot .inner{background:var(--paper);display:inline-block;padding:6px 12px}
+.drop:focus-visible{outline:3px solid var(--alarm);outline-offset:3px}
+.drop .sub{display:block;font-family:var(--sans);font-size:13px;margin-top:8px}
+
+.strip{display:flex;flex-wrap:wrap;gap:0;border:2px solid var(--ink);margin:0 0 20px}
+.strip div{padding:8px 14px;border-right:2px solid var(--ink);font-family:var(--mono);font-size:13px}
+.strip div:last-child{border-right:0}
+.strip span{display:block;font-size:19px;font-weight:700}
+
+h2{font-size:13px;font-family:var(--mono);font-weight:700;margin:26px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--ink)}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px}
+th{text-align:left;font-weight:700;border-bottom:2px solid var(--ink);padding:5px 8px 5px 0;white-space:nowrap}
+td{padding:3px 8px 3px 0;border-bottom:1px solid rgba(0,0,0,.18);white-space:nowrap}
+.num{text-align:right;padding-right:16px}
+.scroll{max-height:300px;overflow:auto;border:1px solid var(--ink)}
+.scroll table{font-size:11.5px}
+.scroll th{position:sticky;top:0;background:var(--paper)}
+
+.note{border-left:6px solid var(--ink);padding:8px 0 8px 14px;margin:14px 0;font-size:14px;max-width:70ch}
+.warn{border:2px solid var(--alarm);margin:16px 0}
+.warn .head{background:var(--alarm);color:var(--paper);font-family:var(--mono);font-size:13px;font-weight:700;padding:6px 12px}
+.ok{border:2px solid var(--ink);margin:16px 0}
+.ok .head{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:13px;font-weight:700;padding:6px 12px}
+.ok .inner{padding:10px 16px}
+.ok p{margin:0 0 8px;font-size:14px;max-width:68ch}
+.ok p:last-child{margin-bottom:0}
+.warn ul{margin:0;padding:12px 16px 12px 32px}
+.warn li{margin:0 0 8px;font-size:14px}
+.warn li:last-child{margin-bottom:0}
+.tag{font-family:var(--mono);font-size:11px;border:1px solid currentColor;padding:0 5px;margin-right:7px}
+.sev{color:var(--alarm);font-weight:700}
+
+.opts{border:2px solid var(--ink);margin:12px 0 0}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-bottom:1px solid rgba(0,0,0,.2)}
+.opt:last-child{border-bottom:0}
+.opt input{margin:3px 0 0;width:16px;height:16px;accent-color:var(--ink);flex:none}
+.opt label{display:block;font-family:var(--mono);font-size:13px;font-weight:700}
+.opt p{margin:2px 0 0;font-size:13px;max-width:62ch}
+.opt.risky{background-image:repeating-linear-gradient(45deg, rgba(179,0,27,.16) 0 6px, transparent 0 12px)}
+.opt.risky label{color:var(--alarm)}
+button.mini{font-family:var(--mono);font-size:12px;padding:5px 12px;background:var(--paper);
+  border:2px solid var(--ink);cursor:pointer;margin-right:8px}
+button.mini:hover{background:var(--ink);color:var(--paper)}
+.opt select{font-family:var(--mono);font-size:12px;padding:2px 4px;border:1px solid var(--ink);background:var(--paper)}
+
+button.go{margin-top:18px;font-family:var(--mono);font-size:15px;font-weight:700;padding:12px 26px;
+  background:var(--ink);color:var(--paper);border:2px solid var(--ink);cursor:pointer}
+button.go:hover:not(:disabled){background:var(--paper);color:var(--ink)}
+button.go:disabled{opacity:.4;cursor:not-allowed}
+button.go:focus-visible{outline:3px solid var(--alarm);outline-offset:3px}
+.status{font-family:var(--mono);font-size:13px;margin-top:12px;min-height:1.4em}
+.err{border:2px solid var(--alarm);padding:12px 14px;margin:16px 0;font-size:14px}
+.err b{display:block;font-family:var(--mono);color:var(--alarm);margin-bottom:4px}
+.hide{display:none}
+.foot{font-size:12.5px;max-width:70ch;margin:30px 0 0;padding-top:14px;border-top:1px solid rgba(0,0,0,.25)}
+.legal{margin:34px 0 0;padding-top:16px;border-top:2px solid var(--ink)}
+.legal h3{font-family:var(--mono);font-size:13px;margin:0 0 8px}
+.legal p{font-size:12.5px;max-width:72ch;margin:0 0 8px}
+.legal details{margin-top:10px}
+.legal summary{font-family:var(--mono);font-size:12px;cursor:pointer;padding:5px 10px;
+  border:2px solid var(--ink);display:inline-block}
+.legal summary:hover{background:var(--ink);color:var(--paper)}
+.legal pre{max-height:340px;overflow:auto;border:1px solid var(--ink);padding:12px;
+  font-family:var(--mono);font-size:11px;line-height:1.45;white-space:pre-wrap;margin-top:10px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:620px){.pad{padding:16px}.strip div{border-right:0;border-bottom:2px solid var(--ink)}}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="bar"><div class="boxlet"></div><h1 id="winTitle">Notator song recovery</h1></div>
+  <div class="pad">
+
+    <p class="lede">Reads an Atari ST Creator/Notator <b>.SON</b> file and writes standard MIDI files:
+      the whole arrangement as a single file with the <b>Arrange mutes applied</b>, plus one file per pattern.
+      Everything happens in this page — your file is never uploaded anywhere.</p>
+
+    <button class="drop" id="drop" type="button">
+      <span class="inner">Drop a .SON file here</span>
+      <span class="sub">or press to choose one</span>
+    </button>
+    <input type="file" id="file" accept=".SON,.son" class="hide">
+
+    <div id="error" class="err hide"></div>
+
+    <div id="report" class="hide">
+      <div class="strip" id="strip"></div>
+      <div id="warnings"></div>
+      <div id="gate" class="hide"></div>
+
+      <h2>Patterns and tracks</h2>
+      <div class="scroll"><table id="ptable"></table></div>
+
+      <h2>Arrangement</h2>
+      <div id="arrSummary"></div>
+
+      <h2>What to export</h2>
+      <div class="opts" id="opts"></div>
+      <div class="opts" id="chanBox"></div>
+      <button class="go" id="go">Save the arrangement</button>
+      <div class="status" id="status"></div>
+    </div>
+
+    <p class="foot">Notator could never export the per-occurrence Arrange mutes, so a pattern with several
+      bass variants always played all of them at once. This reads those mute bits and applies them. The reading is
+      corroborated by the musical structure it produces but has not been checked against original hardware
+      playback, so listen before you trust it.</p>
+
+    <div class="legal">
+      <h3>Copying, and where this came from</h3>
+      <p><b>Notator song recovery</b>, copyright &copy; 2026 <b>YOUR NAME HERE</b>. This is free software
+        under the <b>GNU General Public License, version 3 or later</b>. You may use, study, share and modify
+        it. If you pass on a modified version you must pass on the source and keep it under the same licence,
+        so improvements stay available to everyone who needs them. It comes with no warranty.</p>
+      <p>To put your name on it, open this file in any text editor and replace <code>YOUR NAME HERE</code>
+        in the comment at the top and in the line above. Everything is in this one file; there is nothing else
+        to ship.</p>
+      <p>How it was made: the .SON layout was reverse engineered from a single song file, so the pointer
+        offsets may not hold for every Creator or Notator version &mdash; the page warns you when its
+        assumptions fail. The reading of the Arrange mute bits is supported by the musical structure it
+        produces but has never been checked against a song playing on original hardware. The first decoder
+        was written by GPT&#8209;6 Astra in Python; Claude ported it to JavaScript, added the port and channel
+        handling, and built this page. Bear in mind that who owns AI&#8209;written code is still unsettled in
+        many countries, so your firmest claim is over your own work in it. That is a fact about the law, not
+        advice about your situation.</p>
+      <p>Creator and Notator were Emagic products; the names belong to their owners. This is an independent
+        tool for reading your own files, written for compatibility.</p>
+      <details>
+        <summary>Read the full GNU General Public License</summary>
+        <pre>__GPLTEXT__</pre>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+/*__SONLIB__*/
+</script>
+<script>
+(function () {
+  'use strict';
+  var S = window.SONLIB;
+  var song = null, sourceName = 'song.SON';
+  var $ = function (id) { return document.getElementById(id); };
+
+  var OPTIONS = [
+    { id: 'arrange', on: true, risky: false, label: 'Arrangement MIDI \u2014 the whole song',
+      text: 'One file, every chain unrolled, with the Arrange mute selections applied per occurrence. This is the part Notator itself never exported.' },
+    { id: 'patterns', on: false, risky: false, label: 'Pattern MIDI files',
+      text: 'One file per pattern containing every stored track, unlooped and unmuted. Useful as raw material.' },
+    { id: 'guess', on: false, risky: false, label: 'Mute decisions (JSON)',
+      text: 'Which tracks the decoder believes were active at each arrangement entry, with the raw bytes beside them so you can check any of them.' },
+    { id: 'json', on: false, risky: false, label: 'Decoded structure (JSON)',
+      text: 'Every header, event record and arrangement row, with raw bytes kept alongside the interpretation.' },
+    { id: 'blank', on: false, risky: false, label: 'Blank mute worksheet (JSON)',
+      text: 'The same rows with every selection left empty, if you would rather enter them by hand from the original.' }
+  ];
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
+
+  function showError(title, detail) {
+    $('error').innerHTML = '<b>' + esc(title) + '</b>' + esc(detail);
+    $('error').classList.remove('hide');
+    $('report').classList.add('hide');
+  }
+
+  function renderWarnings(list) {
+    if (!list.length) {
+      $('warnings').innerHTML = '<div class="note">Every structural assumption held on this file: ' +
+        'the pattern table, the track terminators, the loop headers and the arrangement records all read as expected.</div>';
+      return;
+    }
+    var severe = list.filter(function (w) { return w.severity === 'severe'; }).length;
+    var head = severe
+      ? severe + ' assumption' + (severe === 1 ? '' : 's') + ' failed on this file'
+      : 'Read with reservations';
+    var items = list.map(function (w) {
+      return '<li><span class="tag' + (w.severity === 'severe' ? ' sev' : '') + '">' + esc(w.area) + '</span>' +
+        esc(w.message) + (w.count > 1 ? ' <em>(\u00d7' + w.count + ')</em>' : '') + '</li>';
+    }).join('');
+    $('warnings').innerHTML = '<div class="warn"><div class="head">' + esc(head) +
+      '</div><ul>' + items + '</ul></div>' +
+      '<div class="note">The export below still runs, but anything the warnings touch may be wrong. ' +
+      'Compare against the original before trusting it.</div>';
+  }
+
+  function mutePanel() {
+    var ev = S.muteEvidence(song);
+    if (!ev.rows) return '';
+    var muted = ev.rows - ev.all_on;
+    var head, body;
+    if (ev.verdict === 'suspect') {
+      head = 'The mute decoding looks wrong on this file';
+      body = '<p>All ' + ev.rows + ' arrangement entries come out with every track playing. That is exactly ' +
+        'the result you get when the mute bits are not being read at all, so treat the arrangement export ' +
+        'as unreliable here and send me this file.</p>';
+      return '<div class="warn"><div class="head">' + head + '</div><ul><li>' + body + '</li></ul></div>';
+    }
+    head = ev.verdict === 'corroborated'
+      ? 'The mute decoding holds up on this file'
+      : 'The mute decoding produces varied selections';
+    body = '<p>' + muted + ' of ' + ev.rows + ' arrangement entries have at least one track muted. ' +
+      'If the bits were being misread, entries would tend to come out all-on or arbitrary.</p>';
+    if (ev.variant_selectors.length) {
+      body += '<p>' + ev.variant_selectors.map(function (v) {
+        return v.pattern + ' holds ' + v.of + ' tracks and lights exactly one at each of its ' +
+          v.occurrences + ' occurrences';
+      }).join('; ') + '. That is the signature of a variant-selector pattern, and it is very hard to get by accident.</p>';
+    }
+    if (ev.varying.length) {
+      var top = ev.varying.slice().sort(function (a, b) { return b.combinations - a.combinations; }).slice(0, 3);
+      body += '<p>Patterns whose selection changes through the song: ' + top.map(function (v) {
+        return v.pattern + ' (' + v.combinations + ' different combinations across ' + v.occurrences + ' placements)';
+      }).join(', ') + '.</p>';
+    }
+    body += '<p>Still outstanding: none of this has been checked against the song playing on original hardware. ' +
+      'It is strong circumstantial evidence, not a controlled test.</p>';
+    return '<div class="ok"><div class="head">' + esc(head) + '</div><div class="inner">' + body + '</div></div>';
+  }
+
+  var usage = null, assign = null, mode = 'auto';
+
+  function conflicts() {
+    var byCh = {};
+    usage.forEach(function (u) {
+      var c = assign[u.key];
+      if (c === undefined) return;
+      (byCh[c] = byCh[c] || []).push(u);
+    });
+    var hard = [], soft = [], unassigned = usage.filter(function (u) { return assign[u.key] === undefined; });
+    Object.keys(byCh).forEach(function (c) {
+      var group = byCh[c];
+      for (var i = 0; i < group.length; i += 1) for (var j = i + 1; j < group.length; j += 1) {
+        (S.usageOverlaps(group[i], group[j]) ? hard : soft).push([group[i], group[j], +c]);
+      }
+    });
+    return { hard: hard, soft: soft, unassigned: unassigned, byCh: byCh };
+  }
+
+  function autoAssign() {
+    assign = {};
+    var order = usage.slice().sort(function (a, b) { return b.notes - a.notes; });
+    var occupants = [];
+    order.forEach(function (u) {
+      for (var c = 0; c < 16; c += 1) if (!occupants[c]) { occupants[c] = [u]; assign[u.key] = c; return; }
+      var best = -1;
+      for (var c2 = 0; c2 < 16; c2 += 1) {
+        var clash = occupants[c2].some(function (o) { return S.usageOverlaps(o, u); });
+        if (!clash) { best = c2; break; }
+      }
+      if (best < 0) {
+        best = 0;
+        for (var c3 = 1; c3 < 16; c3 += 1) {
+          var a = occupants[c3].reduce(function (s, o) { return s + o.notes; }, 0);
+          var b = occupants[best].reduce(function (s, o) { return s + o.notes; }, 0);
+          if (a < b) best = c3;
+        }
+      }
+      occupants[best].push(u); assign[u.key] = best;
+    });
+  }
+
+  function assignmentTable() {
+    var c = conflicts();
+    var rows = usage.map(function (u) {
+      var mine = assign[u.key];
+      var trouble = c.hard.some(function (h) { return h[0] === u || h[1] === u; });
+      var shared = c.soft.some(function (s) { return s[0] === u || s[1] === u; });
+      var opts = '';
+      for (var i = 0; i < 16; i += 1) {
+        opts += '<option value="' + i + '"' + (mine === i ? ' selected' : '') + '>ch ' + (i + 1) + '</option>';
+      }
+      opts += '<option value="-1"' + (mine === undefined ? ' selected' : '') + '>leave out</option>';
+      return '<tr' + (trouble ? ' style="background:rgba(179,0,27,.13)"' : '') + '>' +
+        '<td><b>' + u.label + '</b></td>' +
+        '<td>' + esc(u.tracks.slice(0, 3).join(', ') + (u.tracks.length > 3 ? ' +' + (u.tracks.length - 3) : '')) + '</td>' +
+        '<td class="num">' + u.notes + '</td>' +
+        '<td><select data-key="' + u.key + '">' + opts + '</select></td>' +
+        '<td>' + (trouble ? '<span class="sev">plays at the same time as another source here</span>'
+          : shared ? 'shares a sound, but never sounds at once' : '') + '</td></tr>';
+    });
+    return '<table><tr><th>Notator</th><th>Instruments</th><th class="num">Notes</th>' +
+      '<th>Send to</th><th>Status</th></tr>' + rows.join('') + '</table>';
+  }
+
+  function drawAssignment() {
+    var c = conflicts();
+    var summary = c.hard.length
+      ? '<p class="sev"><b>' + c.hard.length + ' clash' + (c.hard.length === 1 ? '' : 'es') +
+        ' left.</b> Those sources play simultaneously on the same channel, so notes will fight over one sound. ' +
+        'Move one of each pair, or leave it out.</p>'
+      : '<p>No clashes. Sources sharing a channel never sound at the same time, though they will still use the same patch.</p>';
+    $('chanBox').innerHTML = '<div class="opt"><div style="width:100%">' +
+      '<label>Assign MIDI channels</label>' +
+      '<p>This song uses <b>' + usage.length + '</b> port and channel combinations across ' +
+      'your Notator outputs, and a MIDI file only has 16 channels. Channel numbers are four bits wide, ' +
+      'so there is no way to number past 16. Decide which sources may share one, or export a file per port.</p>' +
+      summary +
+      '<div style="margin:10px 0"><button class="mini" id="autoBtn" type="button">Suggest an assignment</button> ' +
+      '<button class="mini" id="splitBtn" type="button">One file per port instead</button></div>' +
+      assignmentTable() + '</div></div>';
+    Array.prototype.forEach.call($('chanBox').querySelectorAll('select'), function (sel) {
+      sel.addEventListener('change', function () {
+        var k = +this.getAttribute('data-key'), v = +this.value;
+        if (v < 0) delete assign[k]; else assign[k] = v;
+        drawAssignment();
+      });
+    });
+    $('autoBtn').addEventListener('click', function () { autoAssign(); drawAssignment(); });
+    $('splitBtn').addEventListener('click', function () { mode = 'split'; renderChannels(); updateButton(); });
+  }
+
+  function renderChannels() {
+    if (!song.arrangement.length) { $('chanBox').innerHTML = ''; $('chanBox').classList.add('hide'); return; }
+    $('chanBox').classList.remove('hide');
+    var sel = S.selectionMap(song, true);
+    usage = S.channelUsage(song, sel, new S.Warnings());
+
+    if (mode === 'split') {
+      var ports = Array.from(new Set(usage.map(function (u) { return u.port; }))).sort();
+      $('chanBox').innerHTML = '<div class="opt"><div style="width:100%"><label>One file per Notator port</label>' +
+        '<p>Writes ' + ports.length + ' MIDI files, one for each output (' +
+        ports.map(function (p) { return S.portLetter(p); }).join(', ') +
+        '), each with its original channel numbers intact. Nothing collides and nothing is renumbered, ' +
+        'but you get ' + ports.length + ' files rather than one.</p>' +
+        '<button class="mini" id="backBtn" type="button">Fit into one file instead</button></div></div>';
+      $('backBtn').addEventListener('click', function () { mode = 'auto'; renderChannels(); updateButton(); });
+      return;
+    }
+
+    if (usage.length > 16) { if (!assign) autoAssign(); mode = 'manual'; drawAssignment(); return; }
+
+    mode = 'auto';
+    var plan = S.channelPlan(song, sel);
+    var rows = Array.from(plan.entries()).sort(function (a, b) { return a[1] - b[1]; })
+      .map(function (e) {
+        return '<tr><td class="num">' + (e[1] + 1) + (e[1] === 9 ? ' \u25cf' : '') + '</td><td>was ' +
+          S.portLetter(Math.floor(e[0] / 16)) + ((e[0] % 16) + 1) + '</td></tr>';
+      });
+    var half = Math.ceil(rows.length / 2);
+    $('chanBox').innerHTML = '<div class="opt"><input type="checkbox" id="remap" checked><div>' +
+      '<label for="remap">Give every port its own MIDI channel</label>' +
+      '<p>Your rig used several MIDI ports, each a separate synth, but a MIDI file has only 16 channels. ' +
+      'These ' + rows.length + ' port and channel pairs fit exactly, so nothing has to share.</p>' +
+      '<div style="display:flex;gap:28px;margin-top:8px"><table style="width:auto">' + rows.slice(0, half).join('') +
+      '</table><table style="width:auto">' + rows.slice(half).join('') + '</table></div>' +
+      '<p style="margin-top:8px">\u25cf is the General MIDI drum channel; the most percussive part goes there. ' +
+      'The full list is written into the file itself.</p></div></div>';
+  }
+
+  function renderReport() {
+    var trackCount = song.patterns.reduce(function (s, p) { return s + p.tracks.length; }, 0);
+    var noteCount = 0;
+    song.patterns.forEach(function (p) { p.tracks.forEach(function (t) {
+      t.records.forEach(function (r) {
+        if (!r.continuation && r.kind === 0x90 && r.value) noteCount += 1; }); }); });
+    var bars = song.stop_tick ? (song.stop_tick / 768) : 0;
+
+    $('strip').innerHTML =
+      '<div>patterns<span>' + song.patterns.length + '</span></div>' +
+      '<div>tracks<span>' + trackCount + '</span></div>' +
+      '<div>notes<span>' + noteCount + '</span></div>' +
+      '<div>arrangement rows<span>' + song.arrangement.length + '</span></div>' +
+      '<div>length<span>' + (bars ? bars.toFixed(0) + ' bars' : '\u2014') + '</span></div>' +
+      '<div>tempo<span>' + song.bpm_header + '</span></div>';
+
+    renderWarnings(song.warnings);
+
+    if (song.confidence === 'doubtful') {
+      $('gate').innerHTML = '<div class="warn"><div class="head">This may not be a Notator song at all</div>' +
+        '<ul><li>The file does not carry the identifying bytes a Creator/Notator song starts with. ' +
+        'Everything above was read by applying the reference layout anyway, so the patterns, names and notes ' +
+        'shown may be meaningless. If this really is a Notator song from a version we have not seen, that is ' +
+        'worth knowing \u2014 keep the decoded JSON and the warnings.</li></ul></div>' +
+        '<div class="opt risky"><input type="checkbox" id="ack"><div>' +
+        '<label for="ack">Export anyway</label>' +
+        '<p>I understand the output may be nonsense rather than music.</p></div></div>';
+      $('gate').classList.remove('hide');
+      $('go').disabled = true;
+      $('ack').addEventListener('change', updateButton);
+    } else {
+      $('gate').innerHTML = '';
+      $('gate').classList.add('hide');
+    }
+
+    var rows = ['<tr><th>Pattern</th><th>Trk</th><th>Name</th><th>Route</th>' +
+      '<th class="num">Loop</th><th class="num">Transp</th><th class="num">Vel</th><th class="num">Notes</th></tr>'];
+    song.patterns.forEach(function (p) {
+      p.tracks.forEach(function (t, i) {
+        var n = t.records.filter(function (r) { return !r.continuation && r.kind === 0x90 && r.value; }).length;
+        rows.push('<tr><td>' + (i === 0 ? 'P' + ('0' + p.number).slice(-2) + ' ' + esc(p.name) : '') + '</td>' +
+          '<td class="num">' + t.number + '</td><td>' + esc(t.name || '\u2014') + '</td>' +
+          '<td>' + esc(S.routeName(t)) + '</td>' +
+          '<td class="num">' + (t.loop_beats ? t.loop_beats + ' bt' : '\u2014') + '</td>' +
+          '<td class="num">' + (t.transpose || '\u2014') + '</td>' +
+          '<td class="num">' + (t.velocity_offset || '\u2014') + '</td>' +
+          '<td class="num">' + n + '</td></tr>');
+      });
+    });
+    $('ptable').innerHTML = rows.join('');
+
+    if (!song.arrangement.length) {
+      $('arrSummary').innerHTML = '<div class="note">No arrangement was recovered, so only the patterns can be exported.</div>';
+    } else {
+      var chains = {};
+      song.arrangement.forEach(function (r) { chains[r.chain] = (chains[r.chain] || 0) + 1; });
+      var used = {};
+      song.arrangement.forEach(function (r) { used[r.pattern] = true; });
+      var known = {};
+      song.patterns.forEach(function (p) { known[p.number] = true; });
+      var ghosts = Object.keys(used).filter(function (n) { return !known[n] && +n !== 0; });
+      var offGrid = song.arrangement.filter(function (r) { return r.tick % 768; });
+      var pre = song.arrangement.filter(function (r) { return r.tick < 0; });
+      var html = '<p>' + song.arrangement.length + ' entries across chain ' +
+        Object.keys(chains).sort().join(', ') + ' (' +
+        Object.keys(chains).sort().map(function (c) { return c + ': ' + chains[c]; }).join(', ') + ').</p>';
+      if (pre.length) html += '<div class="note">' + pre.length + ' entr' + (pre.length === 1 ? 'y starts' : 'ies start') +
+        ' before bar 1. That pre-roll is kept, so every exported bar sits one bar later than in Notator. ' +
+        'The MIDI markers carry the original bar numbers.</div>';
+      if (offGrid.length) html += '<div class="note">' + offGrid.length + ' entr' + (offGrid.length === 1 ? 'y does' : 'ies do') +
+        ' not start on a bar line. Those cut the previous pattern off mid-bar, which is audible and usually intended.</div>';
+      if (ghosts.length) html += '<div class="note">Pattern ' + ghosts.join(', ') +
+        ' appears in the arrangement but holds no tracks. Silent placeholders like this are normal.</div>';
+      $('arrSummary').innerHTML = html + mutePanel();
+    }
+
+    var hasArrangement = song.arrangement.length > 0;
+    $('opts').innerHTML = OPTIONS.map(function (o) {
+      var needsArr = (o.id === 'blank' || o.id === 'guess' || o.id === 'arrange');
+      var off = needsArr && !hasArrangement;
+      return '<div class="opt' + (o.risky ? ' risky' : '') + '">' +
+        '<input type="checkbox" id="opt_' + o.id + '"' + (o.on && !off ? ' checked' : '') + (off ? ' disabled' : '') + '>' +
+        '<div><label for="opt_' + o.id + '">' + esc(o.label) + (o.risky ? ' \u2014 unconfirmed' : '') + '</label>' +
+        '<p>' + esc(off ? 'Not available: this file has no arrangement.' : o.text) + '</p></div></div>';
+    }).join('');
+
+    renderChannels();
+    Array.prototype.forEach.call(document.querySelectorAll('#opts input'), function (el) {
+      el.addEventListener('change', updateButton); });
+    updateButton();
+    $('error').classList.add('hide');
+    $('report').classList.remove('hide');
+    $('winTitle').textContent = sourceName;
+    $('status').textContent = '';
+  }
+
+  function load(file) {
+    sourceName = file.name;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        song = S.readSong(new Uint8Array(reader.result), file.name);
+        renderReport();
+      } catch (e) {
+        song = null;
+        showError('This file could not be read', e.message);
+      }
+    };
+    reader.onerror = function () { showError('The file could not be opened', 'Try choosing it again.'); };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function stem() { return sourceName.replace(/\.[Ss][Oo][Nn]$/, '') || 'song'; }
+  function enc(obj) { return new TextEncoder().encode(JSON.stringify(obj, null, 2) + '\n'); }
+
+  function build() {
+    var warn = new S.Warnings();
+    var files = [];
+    var base = stem();
+    var want = {};
+    OPTIONS.forEach(function (o) { var el = $('opt_' + o.id); want[o.id] = el && el.checked && !el.disabled; });
+
+    if (want.patterns) files = files.concat(S.exportSources(song, warn));
+    if (want.json) files.push({ name: base + '_decoded.json', bytes: enc(song) });
+    if (want.blank) files.push({ name: base + '_mutes_BLANK.json', bytes: enc(S.selectionMap(song, false)) });
+    var guessed = null;
+    if (want.guess || want.arrange) guessed = S.selectionMap(song, true);
+    if (want.guess) files.push({ name: base + '_mutes_INFERRED.json', bytes: enc(guessed) });
+    if (want.arrange) {
+      if (mode === 'split') {
+        files = files.concat(S.renderArrangementFiles(song, guessed, warn, { strategy: 'split', base: base }));
+      } else if (mode === 'manual') {
+        files = files.concat(S.renderWithAssignment(song, guessed, warn, assign, base));
+      } else {
+        var remapEl = $('remap');
+        files.push({ name: base + '_arrangement.mid',
+          bytes: S.renderArrangement(song, guessed, warn, { remapChannels: !!(remapEl && remapEl.checked) }) });
+      }
+    }
+    if (!files.length) throw new Error('Nothing was selected to export.');
+
+    var lines = ['Recovered from ' + sourceName + ' on ' + new Date().toISOString().slice(0, 10),
+      '', 'What is reliable:',
+      '  Pattern MIDI files are a direct decode of stored events.',
+      '', 'What is not:',
+      '  Mute selections in the arrangement come from an unconfirmed hypothesis.',
+      '  Quantize, groove and compression settings are read but not applied.',
+      '  Note releases at chain changes follow a chosen rule, not a verified one.', ''];
+    var all = song.warnings.concat(warn.items.map(function (w) {
+      return { severity: w.severity, area: w.area, message: w.message, count: w.count }; }));
+    lines.push(all.length ? 'Warnings raised while reading this file:' : 'No structural warnings were raised.');
+    all.forEach(function (w) { lines.push('  [' + w.severity + '] ' + w.area + ': ' + w.message); });
+    if (files.length > 1) files.push({ name: 'README.txt', bytes: new TextEncoder().encode(lines.join('\n') + '\n') });
+    return { files: files, extra: warn.items.length };
+  }
+
+  function chosen() {
+    return OPTIONS.filter(function (o) {
+      var el = $('opt_' + o.id); return el && el.checked && !el.disabled; });
+  }
+  function updateButton() {
+    var picked = chosen();
+    if (!picked.length) { $('go').textContent = 'Nothing selected'; $('go').disabled = true; return; }
+    var ack = $('ack');
+    $('go').disabled = !!(ack && !ack.checked);
+    if (picked.length === 1 && picked[0].id === 'arrange' && mode === 'split') $('go').textContent = 'Save one file per port (zip)';
+    else if (picked.length === 1 && picked[0].id === 'arrange') $('go').textContent = 'Save ' + stem() + '_arrangement.mid';
+    else if (picked.length === 1 && picked[0].id === 'patterns') $('go').textContent = 'Save the pattern files (zip)';
+    else $('go').textContent = 'Save ' + picked.length + ' sets of files (zip)';
+  }
+
+  $('drop').addEventListener('click', function () { $('file').click(); });
+  $('file').addEventListener('change', function (e) { if (e.target.files[0]) load(e.target.files[0]); });
+  ['dragenter', 'dragover'].forEach(function (k) {
+    $('drop').addEventListener(k, function (e) { e.preventDefault(); $('drop').classList.add('hot'); }); });
+  ['dragleave', 'drop'].forEach(function (k) {
+    $('drop').addEventListener(k, function (e) { e.preventDefault(); $('drop').classList.remove('hot'); }); });
+  $('drop').addEventListener('drop', function (e) {
+    if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
+
+  $('go').addEventListener('click', function () {
+    if (!song) return;
+    $('status').textContent = 'Building\u2026';
+    try {
+      var out = build();
+      var single = out.files.length === 1;
+      var blob = single
+        ? new Blob([out.files[0].bytes], { type: 'audio/midi' })
+        : new Blob([S.makeZip(out.files)], { type: 'application/zip' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = single ? out.files[0].name.split('/').pop() : stem() + '_recovered.zip';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      $('status').textContent = single
+        ? 'Saved ' + a.download + ' \u2014 one file, ready for any player or DAW.'
+        : 'Saved ' + out.files.length + ' files as a zip' +
+          (out.extra ? ' \u2014 ' + out.extra + ' new warning(s) are listed in README.txt' : '') + '.';
+    } catch (e) {
+      $('status').textContent = '';
+      showError('The export stopped', e.message);
+    }
+  });
+})();
+</script>
+</body>
+</html>

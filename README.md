@@ -7,7 +7,7 @@ How to run this tool:
 Click the green Code button near the top of this repository.
 Select Download ZIP.
 Extract the downloaded folder on your computer.
-Double-click the main file (e.g., index.html) to open it safely in your web browser.
+Double-click the main file (notator-son-to-midi v0.2.html) to open it safely in your web browser.
 
 ## The problem this solves
 

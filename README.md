@@ -25,7 +25,7 @@ This tool reads those mute bits and applies them.
 
 ## Using it
 
-1. Download index.html and open it locally — it works offline and is a single self-contained file.
+1. Open 'notator-son-to-midi v0.2.html' locally — it works offline and is a single self-contained file.
 2. Drop a `.SON` file on the page.
 3. Read the report: patterns, tracks, arrangement entries, and any warnings.
 4. Press the button. You get one `.mid` file containing the whole arrangement.

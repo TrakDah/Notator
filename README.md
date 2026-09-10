@@ -3,7 +3,7 @@
 Reads Atari ST **Creator/Notator `.SON`** files and writes Standard MIDI Files —
 including the per-occurrence **Arrange mute settings that Notator itself never exported**.
 
-**[Open the tool](https://YOUR-USERNAME.github.io/notator-son-recovery/)** — it runs
+**[Open the tool](https://trakdah.github.io/Notator/)** — it runs
 entirely in your browser. Your song is never uploaded anywhere.
 
 ## The problem this solves

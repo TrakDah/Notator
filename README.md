@@ -2,9 +2,12 @@
 
 Reads Atari ST **Creator/Notator `.SON`** files and writes Standard MIDI Files —
 including the per-occurrence **Arrange mute settings that Notator itself never exported**.
+How to run this tool:
 
-**[Open the tool](https://trakdah.github.io/Notator/)** — it runs
-entirely in your browser. Your song is never uploaded anywhere.
+Click the green Code button near the top of this repository.
+Select Download ZIP.
+Extract the downloaded folder on your computer.
+Double-click the main file (e.g., index.html) to open it safely in your web browser.
 
 ## The problem this solves
 
